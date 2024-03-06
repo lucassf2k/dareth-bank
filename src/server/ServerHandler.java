@@ -7,6 +7,7 @@ import java.io.UnsupportedEncodingException;
 import java.net.Socket;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
+import java.util.Objects;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.IllegalBlockSizeException;
@@ -14,6 +15,7 @@ import javax.crypto.NoSuchPaddingException;
 
 import server.domain.Bank;
 import server.domain.CheckingAccount;
+import shared.CurrencyFormatter;
 import shared.FileService;
 import shared.Message;
 import shared.MessageTypes;
@@ -23,15 +25,16 @@ import shared.crypto.Vernam;
 
 public class ServerHandler implements Runnable {
   private final Socket client;
-  private static ObjectOutputStream output;
-  private static ObjectInputStream input;
-  private final Bank bank;
+  private ObjectOutputStream output;
+  private ObjectInputStream input;
+  private static Bank bank;
   private int response = 1;
   private CheckingAccount currentCheckingAccount = null;
+  private String authenticationKey;
 
   public ServerHandler(Socket client) {
     this.client = client;
-    this.bank = new Bank();
+    bank = new Bank();
   }
 
   @Override
@@ -59,20 +62,19 @@ public class ServerHandler implements Runnable {
           deposit(request);
           continue;
         }
+        if (request.getType().equals(MessageTypes.TRANSFER)) {
+          transfer(request);
+          continue;
+        }
+        if (request.getType().equals(MessageTypes.INVESTMENT)) {
+          investment(request);
+          continue;
+        }
       }
       input.close();
       output.close();
       client.close();
     } catch (IOException | ClassNotFoundException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  private void sendMessage(final int response) {
-    try {
-      output.writeInt(response);
-      output.flush();
-    } catch (IOException e) {
       throw new RuntimeException(e);
     }
   }
@@ -90,19 +92,46 @@ public class ServerHandler implements Runnable {
       response = 2;
       currentCheckingAccount = bank.getCheckingAccount(accountNumber);
     }
-    sendMessage(response);
+    final var keys = getKeys();
+    try {
+      final var userExists = bank.getCheckingAccount(accountNumber);
+      if (!Objects.isNull(userExists)) {
+        authenticationKey = HMAC.hMac(keys[1], accountNumber);
+        output.writeUTF(authenticationKey);
+        output.writeInt(response);
+        output.flush();
+      } else {
+        output.writeUTF("Não está cadastrado.");
+        output.writeInt(response);
+        output.flush();
+      }
+    } catch (InvalidKeyException | NoSuchAlgorithmException | IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   private void withdraw(final Message request) {
     System.out.println("descriptografando a mensagem...");
-    final var isAuthenticated = checkMessageAuthenticity(request.getContent(), request.getHMAC());
-    if (!isAuthenticated) {
-      response = 1;
-    }
-    final var decryptedMessage = decrypt(request);
-    currentCheckingAccount.withdraw(Double.valueOf(decryptedMessage));
     try {
-      output.writeUTF("seu saldo é de " + currentCheckingAccount.getBalance());
+      final var authenticationKeyClient = request.getAuthenticationKey();
+      final var isAuthenticated = checkMessageAuthenticity(request.getContent(), request.getHMAC());
+      if (!isAuthenticated) {
+        response = 1;
+        output.writeUTF("credencias incorretas");
+        output.writeInt(response);
+        output.flush();
+        return;
+      }
+      if (!authenticationKey.equals(authenticationKeyClient)) {
+        response = 1;
+        System.out.println("sem chave autenticada.");
+        output.writeInt(response);
+        output.flush();
+        return;
+      }
+      final var decryptedMessage = decrypt(request);
+      System.out.println(decryptedMessage);
+      currentCheckingAccount.withdraw(Double.valueOf(decryptedMessage));
       output.writeInt(response);
       output.flush();
     } catch (IOException e) {
@@ -112,7 +141,7 @@ public class ServerHandler implements Runnable {
 
   private void getBalance() {
     try {
-      output.writeUTF("seu saldo é de " + currentCheckingAccount.getBalance());
+      output.writeUTF("seu saldo é de " + CurrencyFormatter.real(currentCheckingAccount.getBalance()));
       output.writeInt(response);
       output.flush();
     } catch (IOException e) {
@@ -123,13 +152,91 @@ public class ServerHandler implements Runnable {
   private void deposit(final Message request) {
     System.out.println("verificando se é uma mensagem autentica...");
     final var isAuthenticated = checkMessageAuthenticity(request.getContent(), request.getHMAC());
+    System.out.println("mensagem eutêntica.");
     if (!isAuthenticated) {
       response = 1;
     }
     final var decryptedMessage = decrypt(request);
     currentCheckingAccount.deposit(Double.valueOf(decryptedMessage));
     try {
-      output.writeUTF("seu saldo é de " + currentCheckingAccount.getBalance());
+      output.writeInt(response);
+      output.flush();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void transfer(final Message request) {
+    System.out.println("verificando se é uma mensagem autêntica...");
+    final var isAutehnticated = checkMessageAuthenticity(request.getContent(), request.getHMAC());
+    if (!isAutehnticated) {
+      response = 1;
+    }
+    System.out.println("mensagem autêntica.");
+    final var decryptedMessage = decrypt(request);
+    final var splitedDecryptedMessage = decryptedMessage.split("-");
+    final var accountNumberRecipient = splitedDecryptedMessage[0];
+    final var value = splitedDecryptedMessage[1];
+    final var checkingAccountRecipient = bank.getCheckingAccount(accountNumberRecipient);
+    currentCheckingAccount.transfer(checkingAccountRecipient, Double.valueOf(value));
+    try {
+      output.writeUTF("tranferência realizada com sucesso.");
+      output.writeInt(response);
+      output.flush();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void investment(final Message request) {
+    System.out.println("verificando se é uma mensagem autenticada");
+    final var authenticationKeyClient = request.getAuthenticationKey();
+    final var isAuthenticated = checkMessageAuthenticity(request.getContent(), request.getHMAC());
+    try {
+      if (!isAuthenticated) {
+        response = 1;
+        output.writeUTF("mensagem não autentica.");
+        output.writeInt(response);
+        output.flush();
+        return;
+      }
+      if (!authenticationKey.equals(authenticationKeyClient)) {
+        response = 1;
+        System.out.println("sem chave autenticada.");
+        output.writeInt(response);
+        output.flush();
+        return;
+      }
+      final var decryptedMessage = decrypt(request);
+      double balanceTreeMonths = 0.0;
+      double balanceSixMonths = 0.0;
+      double balanceTwelveMonths = 0.0;
+      double balance = currentCheckingAccount.getBalance();
+      if (Integer.valueOf(decryptedMessage) == 1) {
+        for (var month = 1; month <= 12; month++) {
+          balance += (balance * 0.005);
+          if (month == 3)
+            balanceTreeMonths = balance;
+          if (month == 6)
+            balanceSixMonths = balance;
+          if (month == 12)
+            balanceTwelveMonths = balance;
+        }
+      }
+      if (Integer.valueOf(decryptedMessage) == 2) {
+        for (var month = 1; month <= 12; month++) {
+          balance += (balance * 0.015);
+          if (month == 3)
+            balanceTreeMonths = balance;
+          if (month == 6)
+            balanceSixMonths = balance;
+          if (month == 12)
+            balanceTwelveMonths = balance;
+        }
+      }
+      output.writeUTF("Em 3 meses: " + CurrencyFormatter.real(balanceTreeMonths));
+      output.writeUTF("Em 6 meses: " + CurrencyFormatter.real(balanceSixMonths));
+      output.writeUTF("Em 1 ano: " + CurrencyFormatter.real(balanceTwelveMonths));
       output.writeInt(response);
       output.flush();
     } catch (IOException e) {

@@ -9,11 +9,13 @@ public class Message implements Serializable {
   private final MessageTypes type;
   private final String content;
   private final String HMAC;
+  private final String authenticationKey;
 
-  public Message(MessageTypes type, String content, String hMAC) {
+  public Message(MessageTypes type, String content, String hMAC, String authenticationKey) {
     this.type = type;
     this.content = content;
     this.HMAC = hMAC;
+    this.authenticationKey = authenticationKey;
   }
 
   public MessageTypes getType() {
@@ -27,4 +29,13 @@ public class Message implements Serializable {
   public String getContent() {
     return content;
   }
+
+  public static long getSerialversionuid() {
+    return serialVersionUID;
+  }
+
+  public String getAuthenticationKey() {
+    return authenticationKey;
+  }
+
 }

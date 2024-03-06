@@ -44,31 +44,6 @@ public class CheckingAccount {
     recipient.deposit(value);
   }
 
-  public void simulateInvestiment(
-      final String type, final CheckingAccount checkingAccount, final double value) {
-    if (type.equalsIgnoreCase("savings")) {
-      double balance = checkingAccount.getBalance();
-      for (var month = 1; month <= 12; month++) {
-        balance += (balance * 0.005);
-      }
-      System.out.println("Na poupança em 1 ano: " + balance);
-      return;
-    }
-    double balanceSixMonths = 0.0;
-    double balanceTwelveMonths = 0.0;
-    double balance = checkingAccount.getBalance();
-    for (var month = 1; month <= 12; month++) {
-      balance += (value * 0.015);
-      if (month == 6)
-        balanceSixMonths = balance;
-      if (month == 12)
-        balanceTwelveMonths = balance;
-    }
-
-    System.out.println("Em 6 meses: " + balanceSixMonths);
-    System.out.println("Em 1 ano: " + balanceTwelveMonths);
-  }
-
   private boolean canTransfer(final double value) {
     if (this.balance >= value)
       return Boolean.TRUE;

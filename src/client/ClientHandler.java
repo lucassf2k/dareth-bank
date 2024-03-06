@@ -25,8 +25,9 @@ import shared.crypto.Vernam;
 public class ClientHandler implements Runnable {
   private int hasRequest = 1;
   private final Socket client;
-  private static ObjectInputStream input;
-  private static ObjectOutputStream output;
+  private ObjectInputStream input;
+  private ObjectOutputStream output;
+  private String authenticationKey;
   private final Scanner scan = new Scanner(System.in);
   public static int PORT;
 
@@ -79,7 +80,7 @@ public class ClientHandler implements Runnable {
 
   private void sendMessage(final Message request) {
     try {
-      ClientHandler.output.writeObject(request);
+      output.writeObject(request);
     } catch (IOException e) {
       throw new RuntimeException(e);
     }
@@ -109,9 +110,10 @@ public class ClientHandler implements Runnable {
     final var secureMessage = makeMessageSecure(message, keys[0], keys[2]);
     try {
       final var HMACMessage = HMAC.hMac(keys[1], secureMessage);
-      final var request = new Message(MessageTypes.LOGIN, secureMessage, HMACMessage);
+      final var request = new Message(MessageTypes.LOGIN, secureMessage, HMACMessage, authenticationKey);
       sendMessage(request);
       cleanTerminal();
+      authenticationKey = input.readUTF();
       hasRequest = input.readInt();
     } catch (IOException | InvalidKeyException | NoSuchAlgorithmException e) {
       throw new RuntimeException(e);
@@ -150,6 +152,12 @@ public class ClientHandler implements Runnable {
       case 3:
         deposit();
         break;
+      case 4:
+        transfer();
+        break;
+      case 5:
+        investment();
+        break;
       default:
         break;
     }
@@ -157,26 +165,25 @@ public class ClientHandler implements Runnable {
 
   private void withdraw() {
     System.out.print("Digite o valor que quer retirar: ");
-    final var value = scan.nextInt();
+    final var value = scan.nextDouble();
     final var keys = getKeys();
     final var secureMessage = makeMessageSecure(String.valueOf(value), keys[0], keys[2]);
     try {
       final var HMACMessage = HMAC.hMac(keys[1], secureMessage);
-      final var request = new Message(MessageTypes.WITHDRAW, secureMessage, HMACMessage);
+      final var request = new Message(MessageTypes.WITHDRAW, secureMessage, HMACMessage, authenticationKey);
       sendMessage(request);
-      cleanTerminal();
-      System.out.println(input.readUTF());
       hasRequest = input.readInt();
+      cleanTerminal();
     } catch (InvalidKeyException | NoSuchAlgorithmException | IOException e) {
       throw new RuntimeException(e);
     }
   }
 
   private void getBalance() {
-    final var request = new Message(MessageTypes.GET_BALANCE, null, null);
+    final var request = new Message(MessageTypes.GET_BALANCE, null, null, authenticationKey);
     sendMessage(request);
-    cleanTerminal();
     try {
+      cleanTerminal();
       System.out.println(input.readUTF());
       hasRequest = input.readInt();
     } catch (IOException e) {
@@ -191,9 +198,56 @@ public class ClientHandler implements Runnable {
     final var secureMessage = makeMessageSecure(String.valueOf(value), keys[0], keys[2]);
     try {
       final var HMACMessage = HMAC.hMac(keys[1], secureMessage);
-      final var request = new Message(MessageTypes.DEPOSIT, secureMessage, HMACMessage);
+      final var request = new Message(MessageTypes.DEPOSIT, secureMessage, HMACMessage, authenticationKey);
       sendMessage(request);
       cleanTerminal();
+      hasRequest = input.readInt();
+    } catch (InvalidKeyException | NoSuchAlgorithmException | IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  private void transfer() {
+    System.out.print("Número da conta para qual quer tranferir: ");
+    final var accountNumberRecipient = scan.nextInt();
+    System.out.print("Valor da transferência: ");
+    final var value = scan.nextDouble();
+    final var keys = getKeys();
+    final var message = accountNumberRecipient + "-" + value;
+    final var secureMessage = makeMessageSecure(message, keys[0], keys[2]);
+    try {
+      final var HMACMessage = HMAC.hMac(keys[1], secureMessage);
+      final var request = new Message(
+          MessageTypes.TRANSFER, secureMessage, HMACMessage, authenticationKey);
+      sendMessage(request);
+      cleanTerminal();
+      System.out.println(input.readUTF());
+      hasRequest = input.readInt();
+    } catch (InvalidKeyException | NoSuchAlgorithmException | IOException e) {
+      throw new RuntimeException(e);
+    }
+
+  }
+
+  private void investment() {
+    System.out.println("[1] - Poupança");
+    System.out.println("[2] - Fixa");
+    final var option = scan.nextInt();
+    final var keys = getKeys();
+    final var secureMessage = makeMessageSecure(String.valueOf(option), keys[0], keys[2]);
+    try {
+      final var HMACMessage = HMAC.hMac(keys[1], secureMessage);
+      final var request = new Message(
+          MessageTypes.INVESTMENT, secureMessage, HMACMessage, authenticationKey);
+      sendMessage(request);
+      cleanTerminal();
+      if (option == 1 || option == 2) {
+        System.out.println(input.readUTF());
+        System.out.println(input.readUTF());
+        System.out.println(input.readUTF());
+        hasRequest = input.readInt();
+        return;
+      }
       System.out.println(input.readUTF());
       hasRequest = input.readInt();
     } catch (InvalidKeyException | NoSuchAlgorithmException | IOException e) {

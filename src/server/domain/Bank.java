@@ -5,10 +5,10 @@ import java.util.Map;
 import java.util.Objects;
 
 public class Bank {
-  private final Map<String, CheckingAccount> accounts;
+  private static Map<String, CheckingAccount> accounts;
 
   public Bank() {
-    this.accounts = new HashMap<>();
+    accounts = new HashMap<>();
     createCheckingAccount(
         "123456578",
         "Manuel Carlos",
@@ -48,13 +48,14 @@ public class Bank {
     return Boolean.FALSE;
   }
 
-  public void transfer(final String accountNumberRecipient, final double value) {
-    final var checkingAccount = this.accounts.get(accountNumberRecipient);
+  public boolean transfer(final String accountNumberRecipient, final double value) {
+    final var checkingAccount = accounts.get(accountNumberRecipient);
     if (Objects.isNull(checkingAccount)) {
       System.out.println("conta não existe.");
-      return;
+      return Boolean.FALSE;
     }
     checkingAccount.transfer(checkingAccount, value);
+    return Boolean.TRUE;
   }
 
   private void createCheckingAccount(
